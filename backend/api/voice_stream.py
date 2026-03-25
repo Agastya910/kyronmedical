@@ -314,10 +314,9 @@ async def voice_stream(websocket: WebSocket):
                 asyncio.create_task(speak(greeting))
 
             elif event == "media":
-                # Only forward audio to Deepgram when we're listening (not while AI is speaking)
-                if state["turn"] == TurnState.LISTENING:
-                    audio_bytes = base64.b64decode(msg["media"]["payload"])
-                    await dg_connection.send(audio_bytes)
+                # Continuously forward audio to prevent Deepgram timeout
+                audio_bytes = base64.b64decode(msg["media"]["payload"])
+                await dg_connection.send(audio_bytes)
 
             elif event == "mark":
                 pass  # Playback acknowledged
