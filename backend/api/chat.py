@@ -253,6 +253,14 @@ async def execute_tool(name: str, args: dict, session_data: dict, redis_client: 
                 history = json.loads(history_str)
                 
         if history:
+            belief.update({
+                "first_name": history.get("first_name", fname),
+                "last_name": history.get("last_name", lname),
+                "dob": history.get("dob", ""),
+                "phone": history.get("phone", phone),
+                "email": history.get("email", ""),
+            })
+            session_data["belief_state"] = belief
             return json.dumps({"found": True, "patient_data": history}), session_data
         else:
             return json.dumps({"found": False, "note": "No previous records found for this patient."}), session_data

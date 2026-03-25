@@ -48,7 +48,7 @@ export function CallButton({ sessionId, patientPhone }: Props) {
                    hover:bg-kyron-teal/10 transition-colors cursor-pointer"
       >
         <PhoneIcon />
-        <span>📞 Call Me to Continue</span>
+        <span>Call Me to Continue</span>
       </motion.button>
     );
   }
