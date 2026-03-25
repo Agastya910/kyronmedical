@@ -306,20 +306,33 @@ class ChatResponse(BaseModel):
 async def chat(body: ChatRequest, request: Request):
     redis: aioredis.Redis = request.app.state.redis
     session_id = body.session_id or str(uuid.uuid4())
+    user_text = body.message
+    return await process_chat_message(redis, session_id, user_text)
 
+
+async def process_chat_message(redis: aioredis.Redis, session_id: str, user_text: str, is_voice: bool = False) -> ChatResponse:
     # Load session
     session_data = await get_session(redis, session_id)
     messages = session_data.get("messages", [])
     belief = session_data.get("belief_state", {})
 
     # Sanitize input
-    user_text = sanitize_input(body.message)
+    user_text = sanitize_input(user_text)
 
     # Build system prompt with current context
     system = SYSTEM_PROMPT.format(
         current_date=date.today().strftime("%B %d, %Y"),
         belief_state=json.dumps(belief, indent=2) if belief else "No data collected yet.",
     )
+    if is_voice:
+        system += (
+            "\n\n━━ VOICE RULES ━━\n"
+            "Keep every single response to ONE or TWO short sentences maximum. "
+            "Spell all numbers and dates in words. "
+            "No markdown, no lists, no bullet points. "
+            "Never provide medical advice. "
+            "Be warm and natural like a receptionist on the phone."
+        )
 
     messages.append({"role": "user", "content": user_text})
 

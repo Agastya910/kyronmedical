@@ -22,7 +22,7 @@ from fastapi.responses import PlainTextResponse
 from openai import AsyncOpenAI
 from pydub import AudioSegment
 
-from services.session import get_session, get_session_by_phone
+from services.session import get_session, get_session_by_phone, save_session
 from services.guardrails import SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -71,19 +71,7 @@ async def text_to_mulaw_chunks(text: str) -> list[str]:
     return chunks
 
 
-async def get_llm_voice_response(messages: list[dict]) -> str:
-    """Call Ollama with a short max_tokens limit for voice-appropriate replies."""
-    client = AsyncOpenAI(
-        base_url=os.environ.get("LLM_BASE_URL", "http://localhost:11434/v1"),
-        api_key=os.environ.get("LLM_API_KEY", "ollama"),
-    )
-    response = await client.chat.completions.create(
-        model=os.environ.get("LLM_MODEL", "hf.co/bartowski/Kimi-K2-Instruct-GGUF:Q4_K_M"),
-        messages=messages,
-        temperature=0.5,
-        max_tokens=80,   # Voice responses must be short — 1 or 2 sentences only
-    )
-    return (response.choices[0].message.content or "").strip()
+# ── LLM helper removed (now using unified chat logic) ─────────────────────────
 
 
 # ── TwiML endpoint ─────────────────────────────────────────────────────────────
@@ -133,7 +121,8 @@ async def voice_stream(websocket: WebSocket):
     state = {
         "turn": TurnState.LISTENING,
         "stream_sid": None,
-        "call_messages": [],   # Full conversation for this call (includes system + history)
+        "session_id": "",
+        "last_speak_time": asyncio.get_event_loop().time(),
     }
 
     transcript_queue: asyncio.Queue[str] = asyncio.Queue()
@@ -199,6 +188,7 @@ async def voice_stream(websocket: WebSocket):
             logger.error("TTS error: %s", e)
         finally:
             state["turn"] = TurnState.LISTENING
+            state["last_speak_time"] = asyncio.get_event_loop().time()
 
     # ── Transcript processor loop ─────────────────────────────────────────
     async def process_loop():
@@ -210,12 +200,19 @@ async def voice_stream(websocket: WebSocket):
                 # Wait for user speech. If silence lasts > 8 seconds, trigger fallback.
                 event_type, text = await asyncio.wait_for(transcript_queue.get(), timeout=8.0)
             except asyncio.TimeoutError:
-                if accumulated:
-                    # Treat partial transcript as a finished utterance
-                    event_type, text = "utterance_end", ""
+                if state["turn"] == TurnState.LISTENING:
+                    time_since_speak = asyncio.get_event_loop().time() - state["last_speak_time"]
+                    if time_since_speak > 7.5:
+                        if accumulated:
+                            # Treat partial transcript as a finished utterance
+                            event_type, text = "utterance_end", ""
+                        else:
+                            logger.info("Silence timeout triggered.")
+                            await speak("Sorry, I didn't quite catch that. Could you repeat?")
+                            continue
+                    else:
+                        continue
                 else:
-                    logger.info("Silence timeout triggered.")
-                    await speak("Sorry, I didn't quite catch that. Could you repeat?")
                     continue
 
             if event_type == "stop":
@@ -235,10 +232,17 @@ async def voice_stream(websocket: WebSocket):
                 logger.info("User: %s", full_text)
                 state["turn"] = TurnState.PROCESSING
 
-                state["call_messages"].append({"role": "user", "content": full_text})
                 try:
-                    reply = await get_llm_voice_response(state["call_messages"])
-                    state["call_messages"].append({"role": "assistant", "content": reply})
+                    from api.chat import process_chat_message
+                    
+                    response = await process_chat_message(
+                        redis=redis,
+                        session_id=state["session_id"],
+                        user_text=full_text,
+                        is_voice=True
+                    )
+                    
+                    reply = response.reply
                     logger.info("AI: %s", reply)
                     await speak(reply)
                 except Exception as e:
@@ -274,29 +278,14 @@ async def voice_stream(websocket: WebSocket):
                 else:
                     session_data = {}
 
+                # Create session_id if brand new caller
+                import uuid
+                if not session_id:
+                    session_id = str(uuid.uuid4())
+                state["session_id"] = session_id
+
                 belief = session_data.get("belief_state", {})
-                prior_messages = session_data.get("messages", [])
                 first_name = belief.get("first_name", "")
-
-                # Build system prompt for voice call
-                system_prompt = (
-                    SYSTEM_PROMPT.format(
-                        current_date=date.today().strftime("%B %d, %Y"),
-                        belief_state=json.dumps(belief, indent=2) if belief else "No prior data.",
-                    )
-                    + "\n\n━━ VOICE RULES ━━\n"
-                    + "Keep every single response to ONE or TWO short sentences maximum. "
-                    + "Spell all numbers and dates in words. "
-                    + "No markdown, no lists, no bullet points. "
-                    + "Never provide medical advice. "
-                    + "Be warm and natural like a receptionist on the phone."
-                )
-
-                # Initialize call_messages with system + prior context
-                state["call_messages"] = [{"role": "system", "content": system_prompt}]
-                for m in prior_messages[-8:]:
-                    if m.get("role") in ("user", "assistant") and m.get("content"):
-                        state["call_messages"].append({"role": m["role"], "content": m["content"]})
 
                 # Build greeting
                 booked = belief.get("booked_appointment")
@@ -322,6 +311,12 @@ async def voice_stream(websocket: WebSocket):
                         "Hi, this is Kyron Care. "
                         "I'm here to help you schedule your appointment. Can you hear me okay?"
                     )
+
+                # Save the outbound greeting directly to the session history!
+                msgs = session_data.get("messages", [])
+                msgs.append({"role": "assistant", "content": greeting})
+                session_data["messages"] = msgs
+                await save_session(redis, session_id, session_data)
 
                 asyncio.create_task(speak(greeting))
 
