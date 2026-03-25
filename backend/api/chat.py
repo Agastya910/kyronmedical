@@ -368,9 +368,15 @@ async def process_chat_message(redis: aioredis.Redis, session_id: str, user_text
 
     # Agentic loop — keep calling until no more tool calls
     for _ in range(10):  # safety limit
+        
+        # Strip unsupported fields (like "reasoning" from DeepSeek) for strict endpoints like Groq
+        safe_messages = []
+        for m in full_messages:
+            safe_messages.append({k: v for k, v in m.items() if k not in ("reasoning", "reasoning_content", "thought")})
+
         response = await client.chat.completions.create(
             model=model,
-            messages=full_messages,
+            messages=safe_messages,
             tools=TOOLS,
             tool_choice="auto",
             temperature=0.3,
