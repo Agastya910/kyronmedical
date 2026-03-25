@@ -336,14 +336,28 @@ async def process_chat_message(redis: aioredis.Redis, session_id: str, user_text
 
     messages.append({"role": "user", "content": user_text})
 
-    # ── OpenAI-compatible Client for Ollama Cloud ──
+    # ── Low-Latency OpenAI-compatible Client (Groq/OpenRouter) ──
     from openai import AsyncOpenAI
 
-    client = AsyncOpenAI(
-        base_url=os.environ.get("OLLAMA_BASE_URL", "https://ollama.com/v1"),
-        api_key=os.environ.get("OLLAMA_API_KEY", "ollama")
-    )
-    model = os.environ.get("LLM_MODEL", "deepseek-v3.1:671b-cloud")
+    base_url = os.environ.get("LLM_BASE_URL")
+    api_key = os.environ.get("LLM_API_KEY")
+    model = os.environ.get("LLM_MODEL")
+
+    if not base_url:
+        if os.environ.get("GROQ_API_KEY"):
+            base_url = "https://api.groq.com/openai/v1"
+            api_key = os.environ.get("GROQ_API_KEY")
+            model = model or "llama-3.3-70b-versatile"
+        elif os.environ.get("OPENROUTER_API_KEY"):
+            base_url = "https://openrouter.ai/api/v1"
+            api_key = os.environ.get("OPENROUTER_API_KEY")
+            model = model or "moonshotai/kimi-k2:free"
+        else:
+            base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+            api_key = os.environ.get("OLLAMA_API_KEY", "ollama")
+            model = model or "kimi-k2.5:cloud"
+
+    client = AsyncOpenAI(base_url=base_url, api_key=api_key)
 
     full_messages = [{"role": "system", "content": system}] + messages
     tool_calls_executed = []

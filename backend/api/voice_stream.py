@@ -6,21 +6,17 @@ No OpenAI required. No paid APIs beyond Twilio trial credit.
 """
 
 import asyncio
-import audioop
 import base64
-import io
 import json
 import os
 import logging
 from datetime import date
 from enum import Enum
 
-import edge_tts
+import httpx
 from deepgram import DeepgramClient, LiveTranscriptionEvents, LiveOptions
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse
-from openai import AsyncOpenAI
-from pydub import AudioSegment
 
 from services.session import get_session, get_session_by_phone, save_session
 from services.guardrails import SYSTEM_PROMPT
@@ -31,7 +27,7 @@ router = APIRouter()
 # In-memory store: Twilio CallSid → session context (set by /api/initiate-call)
 _call_context: dict[str, dict] = {}
 
-VOICE_NAME = "en-US-AriaNeural"   # Warm, professional edge-tts voice
+VOICE_NAME = "aura-asteria-en"     # Deepgram Aura female voice
 TWILIO_CHUNK_BYTES = 160           # 20ms of mulaw audio at 8kHz
 
 
@@ -45,29 +41,39 @@ class TurnState(Enum):
 
 async def text_to_mulaw_chunks(text: str) -> list[str]:
     """
-    Convert text → edge-tts MP3 → PCM 16-bit 8kHz mono → mulaw 8kHz.
+    Convert text → Deepgram Aura TTS → raw 8kHz mulaw.
     Returns list of base64-encoded 20ms mulaw chunks for Twilio.
     """
-    communicate = edge_tts.Communicate(text, VOICE_NAME)
-    mp3_buf = io.BytesIO()
-    async for chunk in communicate.stream():
-        if chunk["type"] == "audio":
-            mp3_buf.write(chunk["data"])
-    mp3_buf.seek(0)
-
-    # pydub: MP3 → PCM 16-bit 8kHz mono
-    audio = AudioSegment.from_mp3(mp3_buf)
-    audio = audio.set_frame_rate(8000).set_channels(1).set_sample_width(2)
-    pcm_bytes = audio.raw_data
-
-    # audioop: PCM 16-bit → mulaw
-    mulaw_bytes = audioop.lin2ulaw(pcm_bytes, 2)
-
-    # Split into 20ms chunks
+    url = f"https://api.deepgram.com/v1/speak?model={VOICE_NAME}&encoding=mulaw&sample_rate=8000&container=none"
+    headers = {
+        "Authorization": f"Token {os.environ.get('DEEPGRAM_API_KEY')}",
+        "Content-Type": "application/json",
+    }
+    payload = {"text": text}
+    
     chunks = []
-    for i in range(0, len(mulaw_bytes), TWILIO_CHUNK_BYTES):
-        chunk = mulaw_bytes[i : i + TWILIO_CHUNK_BYTES]
-        chunks.append(base64.b64encode(chunk).decode())
+    
+    # httpx streaming provides the fastest time-to-first-byte latency
+    try:
+        async with httpx.AsyncClient() as client:
+            async with client.stream("POST", url, headers=headers, json=payload) as response:
+                response.raise_for_status()
+                
+                buffer = b""
+                async for audio_chunk in response.aiter_bytes():
+                    buffer += audio_chunk
+                    # Chunk into exactly 160 bytes (20ms) for Twilio
+                    while len(buffer) >= TWILIO_CHUNK_BYTES:
+                        mulaw_chunk = buffer[:TWILIO_CHUNK_BYTES]
+                        buffer = buffer[TWILIO_CHUNK_BYTES:]
+                        chunks.append(base64.b64encode(mulaw_chunk).decode())
+                        
+                # Send any remaining bytes
+                if buffer:
+                    chunks.append(base64.b64encode(buffer).decode())
+    except Exception as e:
+        logger.error(f"Deepgram Aura TTS error: {e}")
+        
     return chunks
 
 

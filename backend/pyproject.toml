@@ -20,9 +20,6 @@ dependencies = [
     "python-multipart>=0.0.9",
     "websockets>=12.0",
     "deepgram-sdk>=3.0.0,<4.0.0",
-    "edge-tts>=6.1.0",
-    "pydub>=0.25.1",
-    "audioop-lts>=0.2.2",
 ]
 
 [project.optional-dependencies]
