@@ -347,11 +347,14 @@ async def process_chat_message(redis: aioredis.Redis, session_id: str, user_text
         if os.environ.get("GROQ_API_KEY"):
             base_url = "https://api.groq.com/openai/v1"
             api_key = os.environ.get("GROQ_API_KEY")
-            model = model or "llama-3.3-70b-versatile"
+            # Groq requires specific model IDs. If the user left "kimi-k2.5" in their .env, override it.
+            if not model or "llama" not in model.lower():
+                model = "llama-3.3-70b-versatile"
         elif os.environ.get("OPENROUTER_API_KEY"):
             base_url = "https://openrouter.ai/api/v1"
             api_key = os.environ.get("OPENROUTER_API_KEY")
-            model = model or "moonshotai/kimi-k2:free"
+            if not model or "moonshot" not in model.lower():
+                model = "moonshotai/kimi-k2:free"
         else:
             base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
             api_key = os.environ.get("OLLAMA_API_KEY", "ollama")
