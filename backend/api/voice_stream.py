@@ -204,7 +204,19 @@ async def voice_stream(websocket: WebSocket):
     async def process_loop():
         accumulated: list[str] = []
         while True:
-            event_type, text = await transcript_queue.get()
+            event_type = None
+            text = ""
+            try:
+                # Wait for user speech. If silence lasts > 8 seconds, trigger fallback.
+                event_type, text = await asyncio.wait_for(transcript_queue.get(), timeout=8.0)
+            except asyncio.TimeoutError:
+                if accumulated:
+                    # Treat partial transcript as a finished utterance
+                    event_type, text = "utterance_end", ""
+                else:
+                    logger.info("Silence timeout triggered.")
+                    await speak("Sorry, I didn't quite catch that. Could you repeat?")
+                    continue
 
             if event_type == "stop":
                 break
