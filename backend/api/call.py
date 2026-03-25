@@ -50,6 +50,7 @@ async def initiate_call(body: InitiateCallRequest, request: Request):
             from_=os.environ["TWILIO_PHONE_NUMBER"],
             url=twiml_url,
             method="POST",
+            send_digits="ww1",
         )
 
         # Store context so the TwiML webhook can look it up by CallSid
