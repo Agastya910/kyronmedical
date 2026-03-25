@@ -11,7 +11,7 @@ import { CallButton } from './CallButton';
 import { ChatInput } from './ChatInput';
 
 export function ChatInterface() {
-  const { messages, sessionId, isLoading, beliefState, bookedAppointment, sendUserMessage } = useChat();
+  const { messages, sessionId, isLoading, beliefState, bookedAppointment, callState, setCallState, sendUserMessage } = useChat();
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom on new messages
@@ -91,7 +91,12 @@ export function ChatInterface() {
       >
         {/* Call button row */}
         <div className="flex items-center justify-between">
-          <CallButton sessionId={sessionId} patientPhone={patientPhone} />
+          <CallButton 
+            sessionId={sessionId} 
+            patientPhone={patientPhone} 
+            callState={callState} 
+            setCallState={setCallState} 
+          />
           <p className="text-slate-600 text-[11px]">
             {sessionId ? `Session active` : 'Starting session…'}
           </p>

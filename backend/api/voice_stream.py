@@ -322,6 +322,7 @@ async def voice_stream(websocket: WebSocket):
                 msgs = session_data.get("messages", [])
                 msgs.append({"role": "assistant", "content": greeting})
                 session_data["messages"] = msgs
+                session_data["call_active"] = True
                 await save_session(redis, session_id, session_data)
 
                 asyncio.create_task(speak(greeting))
@@ -336,6 +337,10 @@ async def voice_stream(websocket: WebSocket):
 
             elif event == "stop":
                 logger.info("Twilio stream stopped")
+                if state["session_id"]:
+                    session_data = await get_session(redis, state["session_id"])
+                    session_data["call_active"] = False
+                    await save_session(redis, state["session_id"], session_data)
                 break
 
         await transcript_queue.put(("stop", ""))
@@ -346,6 +351,14 @@ async def voice_stream(websocket: WebSocket):
     except Exception as e:
         logger.error("Voice stream fatal error: %s", e, exc_info=True)
     finally:
+        # Mark call inactive when Twilio disconnected
+        if state["session_id"]:
+            try:
+                session_data = await get_session(redis, state["session_id"])
+                session_data["call_active"] = False
+                await save_session(redis, state["session_id"], session_data)
+            except Exception as e:
+                logger.error("Failed to mark call inactive: %s", e, exc_info=True)
         try:
             await dg_connection.finish()
         except Exception:

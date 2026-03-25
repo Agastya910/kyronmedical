@@ -1,18 +1,18 @@
 'use client';
-import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { initiateCall } from '@/lib/api';
 import toast from 'react-hot-toast';
 
+export type CallState = 'idle' | 'initiating' | 'ringing' | 'connected';
+
 interface Props {
   sessionId: string | null;
   patientPhone: string | null;
+  callState: CallState;
+  setCallState: (s: CallState) => void;
 }
 
-type CallState = 'idle' | 'initiating' | 'ringing' | 'connected';
-
-export function CallButton({ sessionId, patientPhone }: Props) {
-  const [callState, setCallState] = useState<CallState>('idle');
+export function CallButton({ sessionId, patientPhone, callState, setCallState }: Props) {
 
   const handleCall = async () => {
     if (!sessionId || !patientPhone) {
