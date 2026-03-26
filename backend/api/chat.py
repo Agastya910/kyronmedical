@@ -390,6 +390,185 @@ async def execute_tool(name: str, args: dict, session_data: dict, redis_client: 
     return json.dumps({"error": "Unknown tool"}), session_data
 
 
+# ── Deterministic Intake Endpoints (zero LLM calls) ───────────────────────────
+
+class PatientIntakeRequest(BaseModel):
+    first_name: str
+    last_name: str
+    dob: str
+    phone: str
+    email: str
+
+class PatientIntakeResponse(BaseModel):
+    patient_id: str
+    session_id: str
+    belief_state: dict
+
+@router.post("/patient-intake", response_model=PatientIntakeResponse)
+async def patient_intake(body: PatientIntakeRequest, request: Request):
+    """Deterministic new-patient registration. Zero LLM calls."""
+    redis: aioredis.Redis = request.app.state.redis
+    session_id = str(uuid.uuid4())
+    
+    # Generate patient ID
+    patient_id = "KMG-" + str(uuid.uuid4())[:6].upper()
+    
+    # Build profile
+    profile = {
+        "patient_id": patient_id,
+        "first_name": body.first_name,
+        "last_name": body.last_name,
+        "dob": body.dob,
+        "phone": body.phone,
+        "email": body.email,
+    }
+    
+    # Save to Redis under phone key (primary) and name key (secondary)
+    await redis.set(
+        f"kyron:patient_profile:{body.phone.strip()}",
+        json.dumps(profile),
+    )
+    name_key = f"{body.first_name.strip().lower()}_{body.last_name.strip().lower()}"
+    await redis.set(
+        f"kyron:patient_profile:{name_key}",
+        json.dumps(profile),
+    )
+    
+    # Pre-fill the session belief state so the LLM skips intake entirely
+    belief = {
+        "patient_id": patient_id,
+        "first_name": body.first_name,
+        "last_name": body.last_name,
+        "dob": body.dob,
+        "phone": body.phone,
+        "email": body.email,
+    }
+    session_data = {
+        "messages": [],
+        "belief_state": belief,
+    }
+    await save_session(redis, session_id, session_data)
+    
+    return PatientIntakeResponse(
+        patient_id=patient_id,
+        session_id=session_id,
+        belief_state=belief,
+    )
+
+
+class VerifyPatientRequest(BaseModel):
+    patient_id: str
+
+class VerifyPatientResponse(BaseModel):
+    verified: bool
+    session_id: str | None = None
+    belief_state: dict | None = None
+    patient_id: str | None = None
+    message: str = ""
+
+@router.post("/verify-patient", response_model=VerifyPatientResponse)
+async def verify_patient(body: VerifyPatientRequest, request: Request):
+    """Verify a returning patient by their KMG-XXXXXX ID. Zero LLM calls."""
+    redis: aioredis.Redis = request.app.state.redis
+    pid = body.patient_id.strip().upper()
+    
+    # Scan all patient profiles for matching ID
+    cursor = 0
+    while True:
+        cursor, keys = await redis.scan(cursor, match="kyron:patient_profile:*", count=100)
+        for key in keys:
+            raw = await redis.get(key)
+            if raw:
+                profile = json.loads(raw)
+                if profile.get("patient_id") == pid:
+                    # Create a new session with pre-filled belief state
+                    session_id = str(uuid.uuid4())
+                    belief = {
+                        "patient_id": profile["patient_id"],
+                        "first_name": profile["first_name"],
+                        "last_name": profile["last_name"],
+                        "dob": profile.get("dob", ""),
+                        "phone": profile.get("phone", ""),
+                        "email": profile.get("email", ""),
+                    }
+                    session_data = {"messages": [], "belief_state": belief}
+                    await save_session(redis, session_id, session_data)
+                    return VerifyPatientResponse(
+                        verified=True,
+                        session_id=session_id,
+                        belief_state=belief,
+                        patient_id=pid,
+                        message=f"Welcome back, {profile['first_name']}!",
+                    )
+        if cursor == 0:
+            break
+    
+    return VerifyPatientResponse(verified=False, message="No patient found with that ID.")
+
+
+class SendReminderRequest(BaseModel):
+    phone: str | None = None
+    email: str | None = None
+
+class SendReminderResponse(BaseModel):
+    sent: bool
+    message: str
+    masked_email: str | None = None
+
+@router.post("/send-id-reminder", response_model=SendReminderResponse)
+async def send_id_reminder(body: SendReminderRequest, request: Request):
+    """Send a Patient ID reminder via SMS/email. Zero LLM calls."""
+    redis: aioredis.Redis = request.app.state.redis
+    
+    # Look up by phone
+    profile = None
+    if body.phone:
+        raw = await redis.get(f"kyron:patient_profile:{body.phone.strip()}")
+        if raw:
+            profile = json.loads(raw)
+    
+    # Fall back to scanning by email
+    if not profile and body.email:
+        cursor = 0
+        while True:
+            cursor, keys = await redis.scan(cursor, match="kyron:patient_profile:*", count=100)
+            for key in keys:
+                raw = await redis.get(key)
+                if raw:
+                    p = json.loads(raw)
+                    if p.get("email", "").lower() == body.email.strip().lower():
+                        profile = p
+                        break
+            if profile or cursor == 0:
+                break
+    
+    if not profile or not profile.get("patient_id"):
+        return SendReminderResponse(sent=False, message="No patient found with that contact info.")
+    
+    # Send via SMS + email
+    from services.notifications import send_id_reminder_sms, send_id_reminder_email
+    try:
+        await send_id_reminder_sms(profile)
+    except Exception:
+        pass  # SMS may fail (test phone numbers)
+    if profile.get("email"):
+        await send_id_reminder_email(profile)
+    
+    # Mask email for display
+    email = profile.get("email", "")
+    if "@" in email:
+        local, domain = email.split("@", 1)
+        masked = local[:2] + "***@" + domain
+    else:
+        masked = None
+    
+    return SendReminderResponse(
+        sent=True,
+        message="A reminder with your Patient ID has been sent.",
+        masked_email=masked,
+    )
+
+
 # ── Request / Response models ──────────────────────────────────────────────────
 class ChatRequest(BaseModel):
     message: str
@@ -582,23 +761,14 @@ async def process_chat_message(redis: aioredis.Redis, session_id: str, user_text
             })
             belief = session_data.get("belief_state", {})
         else:
+            # No tool calls → this is the final response to the user
             final_reply = msg.content or ""
             
-            # Extract final answer
-            reply_text = final_reply
-            if final_reply.startswith("FINAL_ANSWER:"):
-                reply_text = final_reply[len("FINAL_ANSWER:"):].strip()
-            elif "FINAL_ANSWER:" in final_reply:
-                reply_text = final_reply.split("FINAL_ANSWER:")[-1].strip()
-                
+            # Strip FINAL_ANSWER: prefix if present (backwards compat)
             if "FINAL_ANSWER:" in final_reply:
-                final_reply = reply_text
-                break
-            else:
-                # Agent did not use FINAL_ANSWER and didn't call a tool.
-                full_messages.append({"role": "assistant", "content": final_reply})
-                full_messages.append({"role": "user", "content": "You did not execute a tool nor did you provide a FINAL_ANSWER: prefix. If you need to search or check something, execute a tool NOW. If you are ready to speak to the user, strictly prefix your message with FINAL_ANSWER:."})
-                continue
+                final_reply = final_reply.split("FINAL_ANSWER:")[-1].strip()
+            
+            break
 
     # Validate output safety
     is_safe, final_reply = validate_output(final_reply)

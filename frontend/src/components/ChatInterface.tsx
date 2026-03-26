@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Toaster } from 'react-hot-toast';
 
 import { useChat } from '@/hooks/useChat';
+import { PatientIntakeForm } from './PatientIntakeForm';
 import { MessageBubble } from './MessageBubble';
 import { TypingIndicator } from './TypingIndicator';
 import { AppointmentCard } from './AppointmentCard';
@@ -11,7 +12,11 @@ import { CallButton } from './CallButton';
 import { ChatInput } from './ChatInput';
 
 export function ChatInterface() {
-  const { messages, sessionId, isLoading, beliefState, bookedAppointment, callState, setCallState, sendUserMessage } = useChat();
+  const {
+    messages, sessionId, isLoading, beliefState, bookedAppointment,
+    callState, setCallState, sendUserMessage,
+    intakeComplete, initFromIntake,
+  } = useChat();
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom on new messages
@@ -63,48 +68,65 @@ export function ChatInterface() {
         </div>
       </motion.header>
 
-      {/* ── Messages ── */}
-      <div className="flex-1 overflow-y-auto px-4 py-5 space-y-4 z-10">
-        <AnimatePresence initial={false}>
-          {messages.map((msg, i) => (
-            <MessageBubble key={msg.id} message={msg} index={i} />
-          ))}
-
-          {/* Appointment Card — shown once booking is confirmed */}
-          {bookedAppointment && (
-            <motion.div key="appointment-card">
-              <AppointmentCard appointment={bookedAppointment} />
-            </motion.div>
-          )}
-
-          {/* Typing indicator */}
-          {isLoading && <TypingIndicator key="typing" />}
-        </AnimatePresence>
-        <div ref={bottomRef} />
-      </div>
-
-      {/* ── Footer / Input Bar ── */}
-      <motion.footer
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="glass border-t border-white/[0.08] px-4 pt-3 pb-4 z-10 space-y-3"
-      >
-        {/* Call button row */}
-        <div className="flex items-center justify-between">
-          <CallButton 
-            sessionId={sessionId} 
-            patientPhone={patientPhone} 
-            callState={callState} 
-            setCallState={setCallState} 
+      {/* ── Gate: show form OR chat ── */}
+      {!intakeComplete ? (
+        <div className="flex-1 overflow-y-auto z-10">
+          <PatientIntakeForm
+            onComplete={(result) => {
+              initFromIntake({
+                sessionId: result.sessionId,
+                beliefState: result.beliefState,
+                patientName: result.patientName,
+              });
+            }}
           />
-          <p className="text-slate-600 text-[11px]">
-            {sessionId ? `Session active` : 'Starting session…'}
-          </p>
         </div>
+      ) : (
+        <>
+          {/* ── Messages ── */}
+          <div className="flex-1 overflow-y-auto px-4 py-5 space-y-4 z-10">
+            <AnimatePresence initial={false}>
+              {messages.map((msg, i) => (
+                <MessageBubble key={msg.id} message={msg} index={i} />
+              ))}
 
-        {/* Input */}
-        <ChatInput onSend={sendUserMessage} disabled={isLoading} />
-      </motion.footer>
+              {/* Appointment Card — shown once booking is confirmed */}
+              {bookedAppointment && (
+                <motion.div key="appointment-card">
+                  <AppointmentCard appointment={bookedAppointment} />
+                </motion.div>
+              )}
+
+              {/* Typing indicator */}
+              {isLoading && <TypingIndicator key="typing" />}
+            </AnimatePresence>
+            <div ref={bottomRef} />
+          </div>
+
+          {/* ── Footer / Input Bar ── */}
+          <motion.footer
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="glass border-t border-white/[0.08] px-4 pt-3 pb-4 z-10 space-y-3"
+          >
+            {/* Call button row */}
+            <div className="flex items-center justify-between">
+              <CallButton 
+                sessionId={sessionId} 
+                patientPhone={patientPhone} 
+                callState={callState} 
+                setCallState={setCallState} 
+              />
+              <p className="text-slate-600 text-[11px]">
+                {sessionId ? `Session active` : 'Starting session…'}
+              </p>
+            </div>
+
+            {/* Input */}
+            <ChatInput onSend={sendUserMessage} disabled={isLoading} />
+          </motion.footer>
+        </>
+      )}
     </div>
   );
 }

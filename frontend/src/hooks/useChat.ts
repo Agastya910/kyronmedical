@@ -12,22 +12,38 @@ export interface Message {
 }
 
 export function useChat() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      content:
-        "Hi there! I'm Kyron Care, your scheduling assistant for Kyron Medical Group. " +
-        "I can help you schedule an appointment, check on a prescription refill, or answer questions about our offices. What can I help you with today?",
-      timestamp: new Date(),
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [beliefState, setBeliefState] = useState<Record<string, unknown>>({});
   const [bookedAppointment, setBookedAppointment] = useState<BookedAppointment | null>(null);
   const [callState, setCallState] = useState<CallState>('idle');
+  const [intakeComplete, setIntakeComplete] = useState(false);
   const latestSessionId = useRef<string | null>(null);
+
+  // Initialize from intake form result
+  const initFromIntake = useCallback((data: {
+    sessionId: string;
+    beliefState: Record<string, unknown>;
+    patientName: string;
+  }) => {
+    latestSessionId.current = data.sessionId;
+    setSessionId(data.sessionId);
+    setBeliefState(data.beliefState);
+    setIntakeComplete(true);
+
+    // Add the welcome message with the patient's name
+    setMessages([
+      {
+        id: 'welcome',
+        role: 'assistant',
+        content:
+          `Welcome, ${data.patientName}! I'm Kyron Care, your scheduling assistant. ` +
+          `Your identity has been verified. What brings you in today?`,
+        timestamp: new Date(),
+      },
+    ]);
+  }, []);
 
   // Background polling for active voice calls
   useEffect(() => {
@@ -126,5 +142,7 @@ export function useChat() {
     callState,
     setCallState,
     sendUserMessage,
+    intakeComplete,
+    initFromIntake,
   };
 }
