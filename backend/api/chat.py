@@ -512,3 +512,14 @@ async def process_chat_message(redis: aioredis.Redis, session_id: str, user_text
         booked_appointment=booked,
         tool_calls_executed=tool_calls_executed,
     )
+
+@router.get("/session/{session_id}")
+async def get_session_endpoint(session_id: str, request: Request):
+    redis: aioredis.Redis = request.app.state.redis
+    session_data = await get_session(redis, session_id)
+    return {
+        "messages": session_data.get("messages", []),
+        "belief_state": session_data.get("belief_state", {}),
+        "booked_appointment": session_data.get("booked_appointment"),
+        "call_active": session_data.get("call_active", False)
+    }
