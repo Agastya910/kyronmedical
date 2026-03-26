@@ -30,9 +30,16 @@ def _build_email_html(patient: dict, doctor: dict, slot: dict) -> str:
              border-radius: 12px; padding: 20px; margin: 20px 0; }}
     .label {{ color: #64748b; font-size: 12px; text-transform: uppercase;
               letter-spacing: 0.05em; margin-bottom: 4px; }}
-    .value {{ color: #0f172a; font-size: 16px; font-weight: 600; }}
     .footer {{ padding: 24px 32px; border-top: 1px solid #e2e8f0;
                color: #94a3b8; font-size: 13px; text-align: center; }}
+    @media (prefers-color-scheme: dark) {{
+      body {{ background: #0f172a !important; color: #e2e8f0 !important; }}
+      .container {{ background: rgba(255,255,255,0.05) !important; border-color: rgba(255,255,255,0.12) !important; }}
+      .card {{ background: rgba(20, 184, 166, 0.1) !important; border-color: rgba(20, 184, 166, 0.3) !important; }}
+      .label {{ color: #94a3b8 !important; }}
+      .value {{ color: #ffffff !important; }}
+      .footer {{ border-top-color: rgba(255,255,255,0.1) !important; }}
+    }}
   </style>
 </head>
 <body>
@@ -121,11 +128,11 @@ async def send_id_reminder_email(patient: dict) -> bool:
     try:
         sg = SendGridAPIClient(os.environ["SENDGRID_API_KEY"])
         body_html = f"""
-        <div style="font-family: sans-serif; padding: 20px; color: #333;">
-            <h2>Kyron Medical Group</h2>
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 20px;">
+            <h2 style="color: #0f766e; margin-top: 0;">◈ Kyron Medical Group</h2>
             <p>Hi {patient.get('first_name', '')},</p>
             <p>You requested a reminder for your Patient ID so you can verify your identity with Kyron Care.</p>
-            <div style="padding: 15px; background: #e2e8f0; border-radius: 8px; font-size: 20px; font-weight: bold; text-align: center; margin: 20px 0;">
+            <div style="padding: 20px; border: 1px solid #ccfbf1; border-radius: 12px; font-size: 24px; font-weight: bold; text-align: center; margin: 24px 0; color: #0f766e;">
                 {patient.get('patient_id')}
             </div>
             <p>Please read this ID aloud to the voice assistant to continue your session.</p>
