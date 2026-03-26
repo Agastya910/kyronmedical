@@ -19,7 +19,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# Remove lib/ as it catches frontend/src/lib/
 lib64/
 parts/
 sdist/
@@ -63,7 +63,8 @@ out/
 *.log
 *.sqlite
 *.sqlite3
-*.db
+# *.db removed to allow kyron.db tracking
+
 backend/out.txt
 backend/test_out.json
 

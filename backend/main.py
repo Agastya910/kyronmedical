@@ -27,6 +27,7 @@ from api.call import router as call_router
 from api.webhook import router as webhook_router
 from api.voice_stream import router as voice_router
 from services.matcher import load_model
+from services.db import init_db, get_availability, save_availability
 
 
 @asynccontextmanager
@@ -39,14 +40,16 @@ async def lifespan(app: FastAPI):
         decode_responses=True,
     )
     logger.info("Redis connected.")
+    logger.info("Initializing SQLite database...")
+    await init_db()
     
     # Seed availability if missing
     import json
     from data.doctors import AVAILABILITY
-    has_avail = await app.state.redis.exists("kyron:availability")
-    if not has_avail:
-        await app.state.redis.set("kyron:availability", json.dumps(AVAILABILITY))
-        logger.info("Seeded default availability to Redis.")
+    avail_data = await get_availability()
+    if not avail_data:
+        await save_availability(AVAILABILITY)
+        logger.info("Seeded default availability to SQLite.")
         
     yield
     # Shutdown
@@ -86,15 +89,31 @@ async def reset_database(request: Request):
     """Testing utility completely resets the Redis mock database and calendar back to clean defaults."""
     redis = request.app.state.redis
     import json
+    import aiosqlite
     from data.doctors import AVAILABILITY
+    from services.db import DB_PATH
     
-    # Target all session, lookup, and availability keys
+    # Target all session keys
     keys = await redis.keys("kyron:*")
     if keys:
         await redis.delete(*keys)
         
+    session_keys = await redis.keys("session:*")
+    if session_keys:
+        await redis.delete(*session_keys)
+        
+    phone_keys = await redis.keys("phone:*")
+    if phone_keys:
+        await redis.delete(*phone_keys)
+        
+    # Reset SQLite
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute('DELETE FROM patients')
+        await db.execute('DELETE FROM kv_store')
+        await db.commit()
+        
     # Immediately seed fresh calendar
-    await redis.set("kyron:availability", json.dumps(AVAILABILITY))
+    await save_availability(AVAILABILITY)
     
     return {
         "success": True, 

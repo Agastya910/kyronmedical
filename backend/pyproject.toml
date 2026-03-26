@@ -20,6 +20,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "websockets>=12.0",
     "deepgram-sdk>=3.0.0,<4.0.0",
+    "aiosqlite>=0.22.1",
 ]
 
 [project.optional-dependencies]

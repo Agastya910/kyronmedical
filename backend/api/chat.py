@@ -17,6 +17,7 @@ from services.guardrails import SYSTEM_PROMPT, sanitize_input, validate_output
 from services.matcher import match_doctor
 from services.session import get_redis, get_session, save_session, register_phone
 from services.notifications import send_confirmation_email, send_confirmation_sms
+from services.db import get_availability, save_availability, save_patient, get_patient_by_id, search_patient
 
 router = APIRouter()
 
@@ -173,8 +174,7 @@ async def execute_tool(name: str, args: dict, session_data: dict, redis_client: 
         if not doctor_id:
             return json.dumps({"error": "Missing required argument 'doctor_id'"}), session_data
             
-        avail_str = await redis_client.get("kyron:availability")
-        avail_data = json.loads(avail_str) if avail_str else AVAILABILITY
+        avail_data = await get_availability() or AVAILABILITY
         slots = avail_data.get(doctor_id, [])
         
         day_filter = args.get("day_of_week")
@@ -204,8 +204,7 @@ async def execute_tool(name: str, args: dict, session_data: dict, redis_client: 
             
         sms_opt_in = args.get("sms_opt_in", False)
 
-        avail_str = await redis_client.get("kyron:availability")
-        avail_data = json.loads(avail_str) if avail_str else AVAILABILITY
+        avail_data = await get_availability() or AVAILABILITY
 
         # Find and mark slot unavailable
         target_slot = None
@@ -242,14 +241,11 @@ async def execute_tool(name: str, args: dict, session_data: dict, redis_client: 
         session_data["belief_state"] = belief
         session_data["booked_appointment"] = booking
         
-        # Save back to Redis
-        await redis_client.set("kyron:availability", json.dumps(avail_data))
+        # Save availability to SQLite
+        await save_availability(avail_data)
         
-        # Save patient to Redis!
-        patient_key = f"kyron:patient_profile:{patient.get('first_name', '').lower().strip()}_{patient.get('last_name', '').lower().strip()}"
-        await redis_client.set(patient_key, json.dumps(patient))
-        phone_key = f"kyron:patient_profile:{patient.get('phone', '').strip()}"
-        await redis_client.set(phone_key, json.dumps(patient))
+        # Save patient to robust SQLite
+        await save_patient(patient)
 
         # Store for frontend appointment card rendering
         session_data["pending_notifications"] = {
@@ -278,15 +274,7 @@ async def execute_tool(name: str, args: dict, session_data: dict, redis_client: 
         lname = args.get("last_name", "")
         phone = args.get("phone", "")
         
-        history = None
-        if phone:
-            history_str = await redis_client.get(f"kyron:patient_profile:{phone.strip()}")
-            if history_str:
-                history = json.loads(history_str)
-        if not history and fname and lname:
-            history_str = await redis_client.get(f"kyron:patient_profile:{fname.lower().strip()}_{lname.lower().strip()}")
-            if history_str:
-                history = json.loads(history_str)
+        history = await search_patient(phone=phone, first_name=fname, last_name=lname)
                 
         if history:
             # Store the profile in a HIDDEN session field — the LLM never sees this data
@@ -336,9 +324,8 @@ async def execute_tool(name: str, args: dict, session_data: dict, redis_client: 
         if not phone:
             return json.dumps({"error": "Missing phone number."}), session_data
         
-        history_str = await redis_client.get(f"kyron:patient_profile:{phone.strip()}")
-        if history_str:
-            history = json.loads(history_str)
+        history = await search_patient(phone=phone)
+        if history:
             pid = history.get("patient_id")
             if pid:
                 from services.notifications import send_id_reminder_sms, send_id_reminder_email
@@ -366,8 +353,7 @@ async def execute_tool(name: str, args: dict, session_data: dict, redis_client: 
             }
             belief["patient_id"] = p_dict["patient_id"]
             session_data["belief_state"] = belief
-            await redis_client.set(f"kyron:patient_profile:{p_dict['first_name'].lower().strip()}_{p_dict['last_name'].lower().strip()}", json.dumps(p_dict))
-            await redis_client.set(f"kyron:patient_profile:{p_dict['phone'].strip()}", json.dumps(p_dict))
+            await save_patient(p_dict)
             
         return json.dumps({"updated": True, "note": "Belief state updated."}), session_data
 
@@ -407,16 +393,8 @@ async def patient_intake(body: PatientIntakeRequest, request: Request):
         "email": body.email,
     }
     
-    # Save to Redis under phone key (primary) and name key (secondary)
-    await redis.set(
-        f"kyron:patient_profile:{body.phone.strip()}",
-        json.dumps(profile),
-    )
-    name_key = f"{body.first_name.strip().lower()}_{body.last_name.strip().lower()}"
-    await redis.set(
-        f"kyron:patient_profile:{name_key}",
-        json.dumps(profile),
-    )
+    # Save to robust SQLite
+    await save_patient(profile)
     
     # Pre-fill the session belief state so the LLM skips intake entirely
     belief = {
@@ -456,36 +434,28 @@ async def verify_patient(body: VerifyPatientRequest, request: Request):
     redis: aioredis.Redis = request.app.state.redis
     pid = body.patient_id.strip().upper()
     
-    # Scan all patient profiles for matching ID
-    cursor = 0
-    while True:
-        cursor, keys = await redis.scan(cursor, match="kyron:patient_profile:*", count=100)
-        for key in keys:
-            raw = await redis.get(key)
-            if raw:
-                profile = json.loads(raw)
-                if profile.get("patient_id") == pid:
-                    # Create a new session with pre-filled belief state
-                    session_id = str(uuid.uuid4())
-                    belief = {
-                        "patient_id": profile["patient_id"],
-                        "first_name": profile["first_name"],
-                        "last_name": profile["last_name"],
-                        "dob": profile.get("dob", ""),
-                        "phone": profile.get("phone", ""),
-                        "email": profile.get("email", ""),
-                    }
-                    session_data = {"messages": [], "belief_state": belief}
-                    await save_session(redis, session_id, session_data)
-                    return VerifyPatientResponse(
-                        verified=True,
-                        session_id=session_id,
-                        belief_state=belief,
-                        patient_id=pid,
-                        message=f"Welcome back, {profile['first_name']}!",
-                    )
-        if cursor == 0:
-            break
+    # Grab from robust SQLite
+    profile = await get_patient_by_id(pid)
+    if profile:
+        # Create a new session with pre-filled belief state
+        session_id = str(uuid.uuid4())
+        belief = {
+            "patient_id": profile["patient_id"],
+            "first_name": profile["first_name"],
+            "last_name": profile["last_name"],
+            "dob": profile.get("dob", ""),
+            "phone": profile.get("phone", ""),
+            "email": profile.get("email", ""),
+        }
+        session_data = {"messages": [], "belief_state": belief}
+        await save_session(redis, session_id, session_data)
+        return VerifyPatientResponse(
+            verified=True,
+            session_id=session_id,
+            belief_state=belief,
+            patient_id=pid,
+            message=f"Welcome back, {profile['first_name']}!",
+        )
     
     return VerifyPatientResponse(verified=False, message="No patient found with that ID.")
 
@@ -504,27 +474,7 @@ async def send_id_reminder(body: SendReminderRequest, request: Request):
     """Send a Patient ID reminder via SMS/email. Zero LLM calls."""
     redis: aioredis.Redis = request.app.state.redis
     
-    # Look up by phone
-    profile = None
-    if body.phone:
-        raw = await redis.get(f"kyron:patient_profile:{body.phone.strip()}")
-        if raw:
-            profile = json.loads(raw)
-    
-    # Fall back to scanning by email
-    if not profile and body.email:
-        cursor = 0
-        while True:
-            cursor, keys = await redis.scan(cursor, match="kyron:patient_profile:*", count=100)
-            for key in keys:
-                raw = await redis.get(key)
-                if raw:
-                    p = json.loads(raw)
-                    if p.get("email", "").lower() == body.email.strip().lower():
-                        profile = p
-                        break
-            if profile or cursor == 0:
-                break
+    profile = await search_patient(phone=body.phone or "", email=body.email or "")
     
     if not profile or not profile.get("patient_id"):
         return SendReminderResponse(sent=False, message="No patient found with that contact info.")
