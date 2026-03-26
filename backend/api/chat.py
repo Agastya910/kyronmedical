@@ -469,8 +469,8 @@ async def process_chat_message(redis: aioredis.Redis, session_id: str, user_text
     tool_calls_executed = []
     final_reply = ""
 
-    # Agentic loop — keep calling until no more tool calls
-    for _ in range(10):  # safety limit
+    # Agentic loop — keep calling until no more tool calls or BLOCKED
+    for iteration in range(5):  # Hard cap: max 5 LLM calls per user turn
         
         # Strip unsupported fields (like "reasoning" from DeepSeek) for strict endpoints like Groq
         safe_messages = []
@@ -520,6 +520,7 @@ async def process_chat_message(redis: aioredis.Redis, session_id: str, user_text
 
         if msg.tool_calls:
             full_messages.append(msg.model_dump(exclude_none=True))
+            blocked_this_round = False
             for tc in msg.tool_calls:
                 fn_name = tc.function.name
                 fn_args = json.loads(tc.function.arguments)
@@ -530,7 +531,26 @@ async def process_chat_message(redis: aioredis.Redis, session_id: str, user_text
                     "tool_call_id": tc.id,
                     "content": tool_result,
                 })
+                # If the tool was BLOCKED due to missing fields, do ONE more LLM call to
+                # let it formulate a polite ask-for-missing-info message, then stop.
+                tool_result_obj = json.loads(tool_result)
+                if tool_result_obj.get("error", "").startswith("BLOCKED"):
+                    blocked_this_round = True
             belief = session_data.get("belief_state", {})
+            if blocked_this_round:
+                # One final LLM call to generate a user-facing message, then exit loop
+                final_safe = [{k: v for k, v in m.items() if k not in ("reasoning", "reasoning_content", "thought")} for m in full_messages]
+                blocked_response = await client.chat.completions.create(
+                    model=model,
+                    messages=final_safe,
+                    temperature=0.3,
+                )
+                raw = blocked_response.choices[0].message.content or ""
+                if "FINAL_ANSWER:" in raw:
+                    final_reply = raw.split("FINAL_ANSWER:")[-1].strip()
+                else:
+                    final_reply = raw.strip()
+                break
         elif parsed_fn_name:
             fake_call_id = f"call_{uuid.uuid4().hex[:8]}"
             
