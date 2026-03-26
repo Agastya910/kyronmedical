@@ -6,13 +6,11 @@ import re
 
 # Patterns that indicate the AI is drifting into medical advice territory
 MEDICAL_ADVICE_PATTERNS = [
-    r"\byou (?:have|likely have|probably have|definitely have)\b",
-    r"\bdiagnos(?:is|ed|e) (?:you|this) with\b",
-    r"\btake\b.*\b(\d+\s*mg|milligram|pill|tablet|capsule|dose)\b",
-    r"\bprescri(?:be|ption|bed) (?:you|this)\b",
-    r"\btest results? (?:show|indicate|suggest|mean)\b",
-    r"\bimaging (?:shows?|reveals?|indicates?)\b",
+    r"(?i)your? diagnos(?:is|ed|e) (?:is|as)\b",
+    r"(?i)take\b.*\b(?:\d+[\s-]*m?g|\d+[\s-]*pills?|\d+[\s-]*tablets?)\b",
+    r"(?i)i prescribe\b",
 ]
+
 
 
 SAFE_REDIRECT = (

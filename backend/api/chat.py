@@ -757,7 +757,10 @@ async def process_chat_message(redis: aioredis.Redis, session_id: str, user_text
             break
 
     # Validate output safety
-    is_safe, final_reply = validate_output(final_reply)
+    is_safe, validated_reply = validate_output(final_reply)
+    if not is_safe:
+        print(f"\n[DEBUG] SAFETY FILTER TRIGGERED!\n[DEBUG] Original Reply: {final_reply}\n[DEBUG] Replacing with SAFE_REDIRECT\n")
+    final_reply = validated_reply
 
     # Append the final validated reply to the full_messages list
     if not (full_messages[-1]["role"] == "assistant" and full_messages[-1].get("content") == final_reply):
