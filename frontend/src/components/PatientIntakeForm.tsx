@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { submitPatientIntake, verifyPatient, sendIdReminder } from '@/lib/api';
+import { submitPatientIntake, verifyPatient, sendIdReminder, IntakeResponse } from '@/lib/api';
 
 interface IntakeResult {
   sessionId: string;
@@ -20,6 +20,8 @@ export function PatientIntakeForm({ onComplete }: Props) {
   const [mode, setMode] = useState<Mode>('choose');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [pendingResult, setPendingResult] = useState<IntakeResult | null>(null);
 
   // New patient form
   const [firstName, setFirstName] = useState('');
@@ -36,35 +38,26 @@ export function PatientIntakeForm({ onComplete }: Props) {
   const [reminderSent, setReminderSent] = useState(false);
   const [maskedEmail, setMaskedEmail] = useState('');
 
-  // Success state
-  const [generatedId, setGeneratedId] = useState('');
-  const [welcomeName, setWelcomeName] = useState('');
-
   const handleNewSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const res = await submitPatientIntake({
+      const res: IntakeResponse = await submitPatientIntake({
         first_name: firstName.trim(),
         last_name: lastName.trim(),
         dob: dob.trim(),
         phone: phone.trim(),
         email: email.trim(),
       });
-      setGeneratedId(res.patient_id);
-      setWelcomeName(firstName.trim());
+      const result: IntakeResult = {
+        sessionId: res.session_id,
+        beliefState: res.belief_state,
+        patientId: res.patient_id,
+        patientName: firstName.trim(),
+      };
+      setPendingResult(result);
       setMode('success');
-
-      // Auto-proceed to chat after showing the ID
-      setTimeout(() => {
-        onComplete({
-          sessionId: res.session_id,
-          beliefState: res.belief_state,
-          patientId: res.patient_id,
-          patientName: firstName.trim(),
-        });
-      }, 4000);
     } catch {
       setError('Registration failed. Please try again.');
     } finally {
@@ -118,6 +111,14 @@ export function PatientIntakeForm({ onComplete }: Props) {
     }
   };
 
+  const handleCopyId = () => {
+    if (pendingResult) {
+      navigator.clipboard.writeText(pendingResult.patientId);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   const inputClass =
     'w-full px-4 py-3 rounded-xl bg-white/[0.06] border border-white/[0.1] ' +
     'text-white placeholder-slate-500 outline-none focus:border-kyron-teal/60 ' +
@@ -136,6 +137,7 @@ export function PatientIntakeForm({ onComplete }: Props) {
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] px-6">
       <AnimatePresence mode="wait">
+
         {/* ── Choose mode ── */}
         {mode === 'choose' && (
           <motion.div
@@ -277,32 +279,53 @@ export function PatientIntakeForm({ onComplete }: Props) {
           </motion.div>
         )}
 
-        {/* ── Success — show generated ID ── */}
-        {mode === 'success' && (
+        {/* ── Success — show generated ID with manual Continue button ── */}
+        {mode === 'success' && pendingResult && (
           <motion.div
             key="success"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="w-full max-w-sm text-center space-y-4"
+            className="w-full max-w-sm text-center space-y-5"
           >
             <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 flex items-center justify-center">
               <span className="text-emerald-400 text-3xl">✓</span>
             </div>
-            <h2 className="text-white text-xl font-bold">Welcome, {welcomeName}!</h2>
-            <p className="text-slate-400 text-sm">Your account has been created.</p>
+            <div>
+              <h2 className="text-white text-xl font-bold">Welcome, {pendingResult.patientName}!</h2>
+              <p className="text-slate-400 text-sm mt-1">Your account has been created.</p>
+            </div>
 
-            <div className="glass rounded-xl px-6 py-4 space-y-1">
+            {/* Patient ID display */}
+            <div className="glass rounded-xl px-6 py-5 space-y-2">
               <p className="text-slate-500 text-xs uppercase tracking-wider">Your Patient ID</p>
-              <p className="text-kyron-teal text-2xl font-mono font-bold tracking-widest">{generatedId}</p>
-              <p className="text-slate-500 text-xs">Save this for future visits</p>
+              <p className="text-kyron-teal text-2xl font-mono font-bold tracking-widest">
+                {pendingResult.patientId}
+              </p>
+              <p className="text-slate-500 text-xs">Save this — you&apos;ll need it for future visits</p>
             </div>
 
-            <div className="flex items-center gap-2 justify-center">
-              <span className="w-1.5 h-1.5 rounded-full bg-kyron-teal animate-pulse" />
-              <p className="text-slate-500 text-xs">Starting your chat session…</p>
-            </div>
+            {/* Copy button */}
+            <button
+              onClick={handleCopyId}
+              className={`w-full py-2.5 rounded-xl font-medium text-sm transition-all border ${
+                copied
+                  ? 'border-emerald-500/50 text-emerald-400 bg-emerald-500/10'
+                  : 'border-white/10 text-slate-300 bg-white/[0.06] hover:bg-white/[0.1]'
+              }`}
+            >
+              {copied ? '✓ Copied!' : '📋 Copy Patient ID'}
+            </button>
+
+            {/* Manual Continue button */}
+            <button
+              onClick={() => onComplete(pendingResult)}
+              className={btnPrimary}
+            >
+              I&apos;ve saved my ID — Continue to Chat →
+            </button>
           </motion.div>
         )}
+
       </AnimatePresence>
     </div>
   );

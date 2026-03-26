@@ -26,14 +26,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "match_doctor_to_complaint",
-            "description": "Semantically match the patient's chief complaint to the most appropriate doctor. Call this after collecting the reason for visit.",
+            "description": "Match the patient's complaint to the right doctor.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "chief_complaint": {
-                        "type": "string",
-                        "description": "Patient's stated reason for visit in their own words",
-                    }
+                    "chief_complaint": {"type": "string"}
                 },
                 "required": ["chief_complaint"],
             },
@@ -43,16 +40,12 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_available_slots",
-            "description": "Get available appointment slots for a doctor. Optionally filter by day of week.",
+            "description": "Get available appointment slots for a doctor.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "doctor_id": {"type": "string"},
-                    "day_of_week": {
-                        "type": "string",
-                        "enum": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
-                        "description": "Optional: filter by specific day of week",
-                    },
+                    "day_of_week": {"type": "string", "enum": ["Monday","Tuesday","Wednesday","Thursday","Friday"]},
                     "limit": {"type": "integer", "default": 3},
                 },
                 "required": ["doctor_id"],
@@ -63,7 +56,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "book_appointment",
-            "description": "Book a confirmed appointment. Call only after patient explicitly confirms the slot.",
+            "description": "Book a confirmed appointment slot.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -78,11 +71,11 @@ TOOLS = [
                             "phone": {"type": "string"},
                             "email": {"type": "string"},
                         },
-                        "required": ["first_name", "last_name", "dob", "phone", "email"],
+                        "required": ["first_name","last_name","dob","phone","email"],
                     },
                     "sms_opt_in": {"type": "boolean", "default": False},
                 },
-                "required": ["doctor_id", "slot_id", "patient_info"],
+                "required": ["doctor_id","slot_id","patient_info"],
             },
         },
     },
@@ -90,7 +83,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_practice_info",
-            "description": "Get practice address, phone number, and hours of operation.",
+            "description": "Get practice address, phone, and hours.",
             "parameters": {"type": "object", "properties": {}},
         },
     },
@@ -98,15 +91,10 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "update_belief_state",
-            "description": "Update the structured patient belief state with newly collected information. Call silently after collecting any patient data field.",
+            "description": "Save newly collected patient data fields.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "updates": {
-                        "type": "object",
-                        "description": "Key-value pairs to merge into the patient belief state",
-                    }
-                },
+                "properties": {"updates": {"type": "object"}},
                 "required": ["updates"],
             },
         },
@@ -115,7 +103,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "search_patient_history",
-            "description": "Search for a returning patient's profile. Returns ONLY whether a match was found — no personal data is revealed until the patient verifies their Patient ID via the verify_patient_id tool.",
+            "description": "Check if a returning patient exists by name or phone. Returns only found/not-found — no PII.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -130,12 +118,10 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "verify_patient_id",
-            "description": "Verify the patient's identity by checking the Patient ID they provide. Call this ONLY after the user tells you their Patient ID. If it matches, their full profile will be unlocked.",
+            "description": "Verify the spoken Patient ID to unlock the patient profile.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "patient_id": {"type": "string", "description": "The Patient ID provided by the user (e.g. KMG-A1B2C3)."}
-                },
+                "properties": {"patient_id": {"type": "string"}},
                 "required": ["patient_id"]
             }
         }
@@ -144,12 +130,10 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "send_patient_id_reminder",
-            "description": "Send a text/email to the patient containing their forgotten Patient ID. Call this ONLY if the patient says they forgot their ID. Requires their phone number.",
+            "description": "Send the patient's forgotten ID via SMS/email.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "phone": {"type": "string", "description": "Patient's phone number to send the reminder to."}
-                },
+                "properties": {"phone": {"type": "string"}},
                 "required": ["phone"]
             }
         }
@@ -644,7 +628,9 @@ async def process_chat_message(redis: aioredis.Redis, session_id: str, user_text
 
     client = AsyncOpenAI(base_url=base_url, api_key=api_key)
 
-    full_messages = [{"role": "system", "content": system}] + messages
+    # Cap message history to last 10 to control token count
+    recent_messages = messages[-10:] if len(messages) > 10 else messages
+    full_messages = [{"role": "system", "content": system}] + recent_messages
     tool_calls_executed = []
     final_reply = ""
 
