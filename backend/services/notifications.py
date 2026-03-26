@@ -18,28 +18,28 @@ def _build_email_html(patient: dict, doctor: dict, slot: dict) -> str:
   <meta charset="UTF-8">
   <style>
     body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: #0a0f1e; color: #e2e8f0; margin: 0; padding: 0; }}
-    .container {{ max-width: 560px; margin: 40px auto; background: rgba(255,255,255,0.05);
-                  border: 1px solid rgba(255,255,255,0.12); border-radius: 16px;
+            background: #f8fafc; color: #334155; margin: 0; padding: 0; }}
+    .container {{ max-width: 560px; margin: 40px auto; background: #ffffff;
+                  border: 1px solid #e2e8f0; border-radius: 16px;
                   overflow: hidden; }}
     .header {{ background: linear-gradient(135deg, #0f766e, #0891b2);
                padding: 32px; text-align: center; }}
-    .header h1 {{ color: white; margin: 0; font-size: 24px; font-weight: 700; }}
+    .header h1 {{ color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; }}
     .body {{ padding: 32px; }}
-    .card {{ background: rgba(20, 184, 166, 0.1); border: 1px solid rgba(20,184,166,0.3);
+    .card {{ background: #f0fdfa; border: 1px solid #14b8a6;
              border-radius: 12px; padding: 20px; margin: 20px 0; }}
-    .label {{ color: #94a3b8; font-size: 12px; text-transform: uppercase;
+    .label {{ color: #64748b; font-size: 12px; text-transform: uppercase;
               letter-spacing: 0.05em; margin-bottom: 4px; }}
-    .value {{ color: #f1f5f9; font-size: 16px; font-weight: 600; }}
-    .footer {{ padding: 24px 32px; border-top: 1px solid rgba(255,255,255,0.08);
-               color: #64748b; font-size: 13px; text-align: center; }}
+    .value {{ color: #0f172a; font-size: 16px; font-weight: 600; }}
+    .footer {{ padding: 24px 32px; border-top: 1px solid #e2e8f0;
+               color: #94a3b8; font-size: 13px; text-align: center; }}
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
       <h1>◈ Kyron Medical</h1>
-      <p style="color:rgba(255,255,255,0.8); margin:8px 0 0;">Appointment Confirmed</p>
+      <p style="color:rgba(255,255,255,0.9); margin:8px 0 0;">Appointment Confirmed</p>
     </div>
     <div class="body">
       <p>Hi {patient['first_name']},</p>
@@ -47,31 +47,31 @@ def _build_email_html(patient: dict, doctor: dict, slot: dict) -> str:
       <div class="card">
         <div class="label">Patient</div>
         <div class="value">{patient['first_name']} {patient['last_name']}</div>
-        <div style="color:#94a3b8; font-size:14px; margin-top:4px;">Patient ID: {patient.get('patient_id', 'N/A')}</div>
+        <div style="color:#64748b; font-size:14px; margin-top:4px;">Patient ID: {patient.get('patient_id', 'N/A')}</div>
       </div>
       <div class="card">
         <div class="label">Doctor</div>
         <div class="value">{doctor['name']}</div>
-        <div style="color:#94a3b8; font-size:14px; margin-top:4px;">{doctor['specialty']}</div>
+        <div style="color:#64748b; font-size:14px; margin-top:4px;">{doctor['specialty']}</div>
       </div>
       <div class="card">
-        <div class="label">Date & Time</div>
+        <div class="label">Date &amp; Time</div>
         <div class="value">{slot['display_date']} at {slot['time']}</div>
       </div>
       <div class="card">
         <div class="label">Location</div>
         <div class="value">Kyron Medical Group</div>
-        <div style="color:#94a3b8; font-size:14px; margin-top:4px;">
+        <div style="color:#64748b; font-size:14px; margin-top:4px;">
           1250 Medical Center Drive, Suite 400, Houston, TX 77030
         </div>
       </div>
-      <p style="color:#94a3b8; font-size:14px;">
+      <p style="color:#64748b; font-size:14px;">
         Please arrive 15 minutes early to complete any remaining paperwork.
         If you need to reschedule, call us at (713) 555-0192.
       </p>
     </div>
     <div class="footer">
-      Kyron Medical Group · 1250 Medical Center Drive, Houston TX 77030<br>
+      Kyron Medical Group &middot; 1250 Medical Center Drive, Houston TX 77030<br>
       This is an automated message. Please do not reply to this email.
     </div>
   </div>
