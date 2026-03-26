@@ -20,6 +20,7 @@ export function useChat() {
   const [callState, setCallState] = useState<CallState>('idle');
   const [intakeComplete, setIntakeComplete] = useState(false);
   const latestSessionId = useRef<string | null>(null);
+  const callWasActive = useRef(false);
 
   // Initialize from intake form result
   const initFromIntake = useCallback((data: {
@@ -77,10 +78,20 @@ export function useChat() {
            });
         }
 
-        // Auto-disconnect handling from Twilio closing the socket
-        if (res.call_active === false) {
+        // Track whether the call has actually connected via Twilio WebSocket
+        if (res.call_active === true) {
+          callWasActive.current = true;
+          // Transition from ringing → connected
+          if (callState === 'ringing' || callState === 'initiating') {
+            setCallState('connected');
+          }
+        }
+
+        // Only trigger disconnect if the call was previously active and is now inactive
+        if (callWasActive.current && res.call_active === false) {
+          callWasActive.current = false;
           setCallState('idle');
-          toast('Call ended remotely.', { icon: '📞' });
+          toast('Call ended.', { icon: '📞' });
         }
       } catch (err) {
         console.error("Polling error", err);

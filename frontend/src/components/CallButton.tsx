@@ -24,8 +24,7 @@ export function CallButton({ sessionId, patientPhone, callState, setCallState }:
       await initiateCall(patientPhone, sessionId);
       setCallState('ringing');
       toast.success('Calling your phone now…');
-      // After 10s assume connected (could be replaced by Vapi webhook)
-      setTimeout(() => setCallState('connected'), 10000);
+      // Call state transitions to 'connected' via real call_active polling in useChat
     } catch {
       toast.error('Could not initiate call. Please try again.');
       setCallState('idle');
