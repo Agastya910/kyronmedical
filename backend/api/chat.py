@@ -56,12 +56,12 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "book_appointment",
-            "description": "Book a confirmed appointment slot.",
+            "description": "Book an appointment. ONLY CALL THIS once the user has picked a specific slot ID from get_available_slots. NEVER book without a user-confirmed slot_id.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "doctor_id": {"type": "string"},
-                    "slot_id": {"type": "string"},
+                    "doctor_id": {"type": "string", "description": "The matched doctor's ID"},
+                    "slot_id": {"type": "string", "description": "The specific slot ID picked by the user"},
                     "patient_info": {
                         "type": "object",
                         "properties": {
