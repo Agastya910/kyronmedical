@@ -126,6 +126,20 @@ TOOLS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_patient_id_reminder",
+            "description": "Send a text/email to the patient containing their forgotten Patient ID. Call this if they cannot remember their ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "phone": {"type": "string", "description": "Patient's phone number to send the reminder to."}
+                },
+                "required": ["phone"]
+            }
+        }
+    },
 ]
 
 
@@ -189,6 +203,9 @@ async def execute_tool(name: str, args: dict, session_data: dict, redis_client: 
         doctor = DOCTORS_BY_ID[doctor_id]
 
         # Store booking in belief state
+        patient_id = patient.get("patient_id") or "KMG-" + str(uuid.uuid4())[:6].upper()
+        patient["patient_id"] = patient_id
+
         booking = {
             "doctor": doctor,
             "slot": target_slot,
@@ -196,6 +213,7 @@ async def execute_tool(name: str, args: dict, session_data: dict, redis_client: 
             "sms_opt_in": sms_opt_in,
         }
         belief.update({
+            "patient_id": patient_id,
             "first_name": patient.get("first_name", ""),
             "last_name": patient.get("last_name", ""),
             "dob": patient.get("dob", ""),
@@ -253,17 +271,29 @@ async def execute_tool(name: str, args: dict, session_data: dict, redis_client: 
                 history = json.loads(history_str)
                 
         if history:
-            belief.update({
-                "first_name": history.get("first_name", fname),
-                "last_name": history.get("last_name", lname),
-                "dob": history.get("dob", ""),
-                "phone": history.get("phone", phone),
-                "email": history.get("email", ""),
-            })
-            session_data["belief_state"] = belief
-            return json.dumps({"found": True, "patient_data": history}), session_data
+            pid = history.get("patient_id", "UNKNOWN")
+            return json.dumps({
+                "found": True, 
+                "hidden_profile_data": history,
+                "note": f"Profile located! The patient's verified ID is {pid}. You MUST ask the user to say their Patient ID out loud before you confirm their identity or book any appointments. DO NOT mention their DOB, email, or past history yet. If they say they forgot it, call send_patient_id_reminder."
+            }), session_data
         else:
             return json.dumps({"found": False, "note": "No previous records found for this patient."}), session_data
+
+    elif name == "send_patient_id_reminder":
+        phone = args.get("phone", "")
+        if not phone:
+            return json.dumps({"error": "Missing phone string."}), session_data
+        
+        history_str = await redis_client.get(f"kyron:patient_profile:{phone.strip()}")
+        if history_str:
+            history = json.loads(history_str)
+            pid = history.get("patient_id")
+            if pid:
+                # Mock sending an SMS logic:
+                return json.dumps({"success": True, "note": f"A reminder with Patient ID {pid} was ostensibly sent to {phone}. Tell the user to check their messages and wait for them to provide the ID."}), session_data
+                
+        return json.dumps({"error": "No matching patient profile found for this phone number."}), session_data
 
     elif name == "update_belief_state":
         updates = args.get("updates", {})
@@ -273,12 +303,15 @@ async def execute_tool(name: str, args: dict, session_data: dict, redis_client: 
         # If we now have contact info, save/update the profile early
         if belief.get("first_name") and belief.get("last_name") and belief.get("phone"):
             p_dict = {
+                "patient_id": belief.get("patient_id") or "KMG-" + str(uuid.uuid4())[:6].upper(),
                 "first_name": belief.get("first_name"),
                 "last_name": belief.get("last_name"),
                 "dob": belief.get("dob"),
                 "phone": belief.get("phone"),
                 "email": belief.get("email"),
             }
+            belief["patient_id"] = p_dict["patient_id"]
+            session_data["belief_state"] = belief
             await redis_client.set(f"kyron:patient_profile:{p_dict['first_name'].lower().strip()}_{p_dict['last_name'].lower().strip()}", json.dumps(p_dict))
             await redis_client.set(f"kyron:patient_profile:{p_dict['phone'].strip()}", json.dumps(p_dict))
             

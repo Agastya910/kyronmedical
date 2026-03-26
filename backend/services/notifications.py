@@ -47,6 +47,7 @@ def _build_email_html(patient: dict, doctor: dict, slot: dict) -> str:
       <div class="card">
         <div class="label">Patient</div>
         <div class="value">{patient['first_name']} {patient['last_name']}</div>
+        <div style="color:#94a3b8; font-size:14px; margin-top:4px;">Patient ID: {patient.get('patient_id', 'N/A')}</div>
       </div>
       <div class="card">
         <div class="label">Doctor</div>
