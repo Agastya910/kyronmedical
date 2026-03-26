@@ -43,7 +43,13 @@ export function useChat() {
         // Sync messages from Redis while protecting local UI state IDs mapping
         if (res.messages && Array.isArray(res.messages)) {
            setMessages((prev) => {
-             const newMapped = res.messages.map((m: any, i: number) => ({
+             const visible = res.messages.filter((m: any) => 
+                 (m.role === 'user' || m.role === 'assistant') && 
+                 typeof m.content === 'string' && 
+                 m.content.trim().length > 0
+             );
+             
+             const newMapped = visible.map((m: any, i: number) => ({
                  id: prev[i]?.id || crypto.randomUUID(), 
                  role: m.role,
                  content: m.content,
