@@ -241,6 +241,9 @@ async def execute_tool(name: str, args: dict, session_data: dict, redis_client: 
         session_data["belief_state"] = belief
         session_data["booked_appointment"] = booking
         
+        # Attach booking to patient for DB persistence
+        patient["booked_appointment"] = booking
+        
         # Save availability to SQLite
         await save_availability(avail_data)
         
@@ -447,6 +450,10 @@ async def verify_patient(body: VerifyPatientRequest, request: Request):
             "phone": profile.get("phone", ""),
             "email": profile.get("email", ""),
         }
+        
+        if profile.get("booked_appointment"):
+            belief["booked_appointment"] = profile["booked_appointment"]
+            
         session_data = {"messages": [], "belief_state": belief}
         await save_session(redis, session_id, session_data)
         return VerifyPatientResponse(
