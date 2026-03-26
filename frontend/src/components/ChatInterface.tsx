@@ -15,7 +15,7 @@ export function ChatInterface() {
   const {
     messages, sessionId, isLoading, beliefState, bookedAppointment,
     callState, setCallState, sendUserMessage,
-    intakeComplete, initFromIntake,
+    intakeComplete, initFromIntake, signOut,
   } = useChat();
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -62,9 +62,19 @@ export function ChatInterface() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse-slow" />
-          <span className="text-emerald-400 text-xs font-medium">Online</span>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse-slow" />
+            <span className="text-emerald-400 text-xs font-medium hidden sm:inline">Online</span>
+          </div>
+          {intakeComplete && (
+            <button
+              onClick={signOut}
+              className="text-xs text-slate-400 hover:text-white transition-colors border border-slate-700/50 hover:border-slate-500 rounded-full px-3 py-1 bg-slate-800/50"
+            >
+              Sign Out
+            </button>
+          )}
         </div>
       </motion.header>
 

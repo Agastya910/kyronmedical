@@ -144,6 +144,15 @@ export function useChat() {
     setIsLoading(false);
   }, [isLoading]);
 
+  const signOut = useCallback(() => {
+    setSessionId(null);
+    latestSessionId.current = null;
+    setBeliefState({});
+    setBookedAppointment(null);
+    setIntakeComplete(false);
+    setMessages([]);
+  }, []);
+
   return {
     messages,
     sessionId,
@@ -155,5 +164,6 @@ export function useChat() {
     sendUserMessage,
     intakeComplete,
     initFromIntake,
+    signOut,
   };
 }

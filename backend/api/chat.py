@@ -100,47 +100,7 @@ TOOLS = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "search_patient_history",
-            "description": "Check if a returning patient exists by name or phone. Returns only found/not-found — no PII.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "first_name": {"type": "string"},
-                    "last_name": {"type": "string"},
-                    "phone": {"type": "string"}
-                }
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "verify_patient_id",
-            "description": "Verify the spoken Patient ID to unlock the patient profile.",
-            "parameters": {
-                "type": "object",
-                "properties": {"patient_id": {"type": "string"}},
-                "required": ["patient_id"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "send_patient_id_reminder",
-            "description": "Send the patient's forgotten ID via SMS/email.",
-            "parameters": {
-                "type": "object",
-                "properties": {"phone": {"type": "string"}},
-                "required": ["phone"]
-            }
-        }
-    },
 ]
-
 
 # ── Tool execution ─────────────────────────────────────────────────────────────
 async def execute_tool(name: str, args: dict, session_data: dict, redis_client: aioredis.Redis) -> tuple[str, dict]:
@@ -241,8 +201,13 @@ async def execute_tool(name: str, args: dict, session_data: dict, redis_client: 
         session_data["belief_state"] = belief
         session_data["booked_appointment"] = booking
         
-        # Attach booking to patient for DB persistence
-        patient["booked_appointment"] = booking
+        # Attach booking to patient for DB persistence (avoid circular reference)
+        patient_booking = {
+            "doctor": doctor,
+            "slot": target_slot,
+            "sms_opt_in": sms_opt_in,
+        }
+        patient["booked_appointment"] = patient_booking
         
         # Save availability to SQLite
         await save_availability(avail_data)
@@ -271,73 +236,6 @@ async def execute_tool(name: str, args: dict, session_data: dict, redis_client: 
 
     elif name == "get_practice_info":
         return json.dumps(PRACTICE_INFO), session_data
-
-    elif name == "search_patient_history":
-        fname = args.get("first_name", "")
-        lname = args.get("last_name", "")
-        phone = args.get("phone", "")
-        
-        history = await search_patient(phone=phone, first_name=fname, last_name=lname)
-                
-        if history:
-            # Store the profile in a HIDDEN session field — the LLM never sees this data
-            session_data["_pending_verification"] = history
-            return json.dumps({
-                "found": True, 
-                "message": "A matching account was found. You MUST now ask the user for their Patient ID (format: KMG-XXXXXX) to verify their identity. Do NOT reveal any personal details. If they forgot their ID, ask for their phone number and call send_patient_id_reminder."
-            }), session_data
-        else:
-            return json.dumps({"found": False, "note": "No previous records found for this patient. Treat them as a new patient."}), session_data
-
-    elif name == "verify_patient_id":
-        user_pid = args.get("patient_id", "").strip().upper()
-        pending = session_data.get("_pending_verification")
-        
-        if not pending:
-            return json.dumps({"verified": False, "error": "No pending profile to verify. Call search_patient_history first."}), session_data
-        
-        real_pid = pending.get("patient_id", "").strip().upper()
-        
-        if user_pid == real_pid:
-            # Verification passed! Now unlock the profile into the belief state
-            belief.update({
-                "patient_id": pending.get("patient_id"),
-                "first_name": pending.get("first_name", ""),
-                "last_name": pending.get("last_name", ""),
-                "dob": pending.get("dob", ""),
-                "phone": pending.get("phone", ""),
-                "email": pending.get("email", ""),
-                "identity_verified": True,
-            })
-            session_data["belief_state"] = belief
-            del session_data["_pending_verification"]
-            return json.dumps({
-                "verified": True,
-                "patient_data": pending,
-                "message": "Identity verified! You may now confirm the patient's details and proceed with scheduling."
-            }), session_data
-        else:
-            return json.dumps({
-                "verified": False,
-                "message": "The Patient ID does not match. Ask the user to try again or offer to send a reminder via send_patient_id_reminder."
-            }), session_data
-
-    elif name == "send_patient_id_reminder":
-        phone = args.get("phone", "")
-        if not phone:
-            return json.dumps({"error": "Missing phone number."}), session_data
-        
-        history = await search_patient(phone=phone)
-        if history:
-            pid = history.get("patient_id")
-            if pid:
-                from services.notifications import send_id_reminder_sms, send_id_reminder_email
-                await send_id_reminder_sms(history)
-                if history.get("email"):
-                    await send_id_reminder_email(history)
-                return json.dumps({"success": True, "message": "A reminder with the Patient ID was sent to the patient's phone and email. Ask the user to check their messages and then provide their Patient ID."}), session_data
-                
-        return json.dumps({"error": "No matching patient profile found for this phone number."}), session_data
 
     elif name == "update_belief_state":
         updates = args.get("updates", {})
