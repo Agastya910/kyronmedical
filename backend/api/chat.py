@@ -290,8 +290,11 @@ async def execute_tool(name: str, args: dict, session_data: dict, redis_client: 
             history = json.loads(history_str)
             pid = history.get("patient_id")
             if pid:
-                # Mock sending an SMS logic:
-                return json.dumps({"success": True, "note": f"A reminder with Patient ID {pid} was ostensibly sent to {phone}. Tell the user to check their messages and wait for them to provide the ID."}), session_data
+                from services.notifications import send_id_reminder_sms, send_id_reminder_email
+                await send_id_reminder_sms(history)
+                if history.get("email"):
+                    await send_id_reminder_email(history)
+                return json.dumps({"success": True, "note": f"An SMS and Email reminder with Patient ID {pid} was successfully transmitted to {phone} and their email address. Tell the user to check their messages and wait for them to provide the ID."}), session_data
                 
         return json.dumps({"error": "No matching patient profile found for this phone number."}), session_data
 

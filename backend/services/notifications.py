@@ -115,3 +115,50 @@ async def send_confirmation_sms(patient: dict, doctor: dict, slot: dict) -> bool
     except Exception as e:
         logger.error("SMS send failed: %s", e)
         return False
+
+
+async def send_id_reminder_email(patient: dict) -> bool:
+    try:
+        sg = SendGridAPIClient(os.environ["SENDGRID_API_KEY"])
+        body_html = f"""
+        <div style="font-family: sans-serif; padding: 20px; color: #333;">
+            <h2>Kyron Medical Group</h2>
+            <p>Hi {patient.get('first_name', '')},</p>
+            <p>You requested a reminder for your Patient ID so you can verify your identity with Kyron Care.</p>
+            <div style="padding: 15px; background: #e2e8f0; border-radius: 8px; font-size: 20px; font-weight: bold; text-align: center; margin: 20px 0;">
+                {patient.get('patient_id')}
+            </div>
+            <p>Please read this ID aloud to the voice assistant to continue your session.</p>
+        </div>
+        """
+        message = Mail(
+            from_email=From(os.environ["SENDGRID_FROM_EMAIL"], "Kyron Medical"),
+            to_emails=To(patient["email"], f"{patient.get('first_name', '')} {patient.get('last_name', '')}"),
+            subject=Subject("Your Patient ID Reminder"),
+            html_content=HtmlContent(body_html),
+        )
+        sg.send(message)
+        logger.info("ID reminder email sent to %s", patient["email"])
+        return True
+    except Exception as e:
+        logger.error("Reminder email send failed: %s", e)
+        return False
+
+
+async def send_id_reminder_sms(patient: dict) -> bool:
+    try:
+        client = TwilioClient(os.environ["TWILIO_ACCOUNT_SID"], os.environ["TWILIO_AUTH_TOKEN"])
+        body = (
+            f"Hi {patient.get('first_name', '')}, your Kyron Medical Patient ID is: {patient.get('patient_id')}. "
+            "Please read this back to the voice assistant to proceed."
+        )
+        client.messages.create(
+            body=body,
+            from_=os.environ["TWILIO_PHONE_NUMBER"],
+            to=patient["phone"],
+        )
+        logger.info("ID reminder SMS sent to %s", patient["phone"])
+        return True
+    except Exception as e:
+        logger.error("Reminder SMS send failed: %s", e)
+        return False
