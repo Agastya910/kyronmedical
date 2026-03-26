@@ -163,6 +163,16 @@ async def execute_tool(name: str, args: dict, session_data: dict, redis_client: 
     belief = session_data.get("belief_state", {})
 
     if name == "match_doctor_to_complaint":
+        # ── GATE: All 5 patient fields must be collected before matching ──
+        required = ["first_name", "last_name", "dob", "phone", "email"]
+        missing = [f for f in required if not belief.get(f)]
+        if missing:
+            return json.dumps({
+                "error": "BLOCKED. Patient intake is incomplete.",
+                "missing_fields": missing,
+                "instruction": f"You MUST collect these fields from the patient BEFORE matching a doctor: {', '.join(missing)}. Ask the patient for each missing field, call update_belief_state to save them, then try again."
+            }), session_data
+
         complaint = args.get("chief_complaint")
         if not complaint:
             return json.dumps({"error": "Missing required argument 'chief_complaint'"}), session_data
@@ -191,6 +201,16 @@ async def execute_tool(name: str, args: dict, session_data: dict, redis_client: 
         return json.dumps({"slots": available[:limit], "doctor": DOCTORS_BY_ID.get(doctor_id)}), session_data
 
     elif name == "book_appointment":
+        # ── GATE: All 5 patient fields must be in belief state before booking ──
+        required = ["first_name", "last_name", "dob", "phone", "email"]
+        missing = [f for f in required if not belief.get(f)]
+        if missing:
+            return json.dumps({
+                "error": "BLOCKED. Cannot book without complete patient information.",
+                "missing_fields": missing,
+                "instruction": f"You MUST collect these fields first: {', '.join(missing)}. Ask the patient, call update_belief_state, then retry booking."
+            }), session_data
+
         doctor_id = args.get("doctor_id")
         slot_id = args.get("slot_id")
         patient = args.get("patient_info", {})
