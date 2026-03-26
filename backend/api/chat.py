@@ -115,7 +115,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "search_patient_history",
-            "description": "Proactively search the long-term memory database for a returning patient's profile using their name or phone number.",
+            "description": "Search for a returning patient's profile. Returns ONLY whether a match was found — no personal data is revealed until the patient verifies their Patient ID via the verify_patient_id tool.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -129,8 +129,22 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "verify_patient_id",
+            "description": "Verify the patient's identity by checking the Patient ID they provide. Call this ONLY after the user tells you their Patient ID. If it matches, their full profile will be unlocked.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "patient_id": {"type": "string", "description": "The Patient ID provided by the user (e.g. KMG-A1B2C3)."}
+                },
+                "required": ["patient_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "send_patient_id_reminder",
-            "description": "Send a text/email to the patient containing their forgotten Patient ID. Call this if they cannot remember their ID.",
+            "description": "Send a text/email to the patient containing their forgotten Patient ID. Call this ONLY if the patient says they forgot their ID. Requires their phone number.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -271,19 +285,52 @@ async def execute_tool(name: str, args: dict, session_data: dict, redis_client: 
                 history = json.loads(history_str)
                 
         if history:
-            pid = history.get("patient_id", "UNKNOWN")
+            # Store the profile in a HIDDEN session field — the LLM never sees this data
+            session_data["_pending_verification"] = history
             return json.dumps({
                 "found": True, 
-                "hidden_profile_data": history,
-                "note": f"Profile located! The patient's verified ID is {pid}. You MUST ask the user to say their Patient ID out loud before you confirm their identity or book any appointments. DO NOT mention their DOB, email, or past history yet. If they say they forgot it, call send_patient_id_reminder."
+                "message": "A matching account was found. You MUST now ask the user for their Patient ID (format: KMG-XXXXXX) to verify their identity. Do NOT reveal any personal details. If they forgot their ID, ask for their phone number and call send_patient_id_reminder."
             }), session_data
         else:
-            return json.dumps({"found": False, "note": "No previous records found for this patient."}), session_data
+            return json.dumps({"found": False, "note": "No previous records found for this patient. Treat them as a new patient."}), session_data
+
+    elif name == "verify_patient_id":
+        user_pid = args.get("patient_id", "").strip().upper()
+        pending = session_data.get("_pending_verification")
+        
+        if not pending:
+            return json.dumps({"verified": False, "error": "No pending profile to verify. Call search_patient_history first."}), session_data
+        
+        real_pid = pending.get("patient_id", "").strip().upper()
+        
+        if user_pid == real_pid:
+            # Verification passed! Now unlock the profile into the belief state
+            belief.update({
+                "patient_id": pending.get("patient_id"),
+                "first_name": pending.get("first_name", ""),
+                "last_name": pending.get("last_name", ""),
+                "dob": pending.get("dob", ""),
+                "phone": pending.get("phone", ""),
+                "email": pending.get("email", ""),
+                "identity_verified": True,
+            })
+            session_data["belief_state"] = belief
+            del session_data["_pending_verification"]
+            return json.dumps({
+                "verified": True,
+                "patient_data": pending,
+                "message": "Identity verified! You may now confirm the patient's details and proceed with scheduling."
+            }), session_data
+        else:
+            return json.dumps({
+                "verified": False,
+                "message": "The Patient ID does not match. Ask the user to try again or offer to send a reminder via send_patient_id_reminder."
+            }), session_data
 
     elif name == "send_patient_id_reminder":
         phone = args.get("phone", "")
         if not phone:
-            return json.dumps({"error": "Missing phone string."}), session_data
+            return json.dumps({"error": "Missing phone number."}), session_data
         
         history_str = await redis_client.get(f"kyron:patient_profile:{phone.strip()}")
         if history_str:
@@ -294,7 +341,7 @@ async def execute_tool(name: str, args: dict, session_data: dict, redis_client: 
                 await send_id_reminder_sms(history)
                 if history.get("email"):
                     await send_id_reminder_email(history)
-                return json.dumps({"success": True, "note": f"An SMS and Email reminder with Patient ID {pid} was successfully transmitted to {phone} and their email address. Tell the user to check their messages and wait for them to provide the ID."}), session_data
+                return json.dumps({"success": True, "message": "A reminder with the Patient ID was sent to the patient's phone and email. Ask the user to check their messages and then provide their Patient ID."}), session_data
                 
         return json.dumps({"error": "No matching patient profile found for this phone number."}), session_data
 
