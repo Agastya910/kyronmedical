@@ -6,15 +6,14 @@ import re
 
 # Patterns that indicate the AI is drifting into medical advice territory
 MEDICAL_ADVICE_PATTERNS = [
-    r"\byou (?:have|likely have|probably have|might have|may have)\b",
-    r"\bsounds? like\b.*\b(cancer|disease|condition|disorder|infection|virus)\b",
-    r"\bdiagnos(?:is|ed|e)\b",
-    r"\btreat(?:ment|ing|ed) with\b",
-    r"\btake\b.*\b(mg|milligram|pill|tablet|capsule|dose)\b",
-    r"\bprescri(?:be|ption|bed)\b",
-    r"\bmedication\b.*\brecommend\b",
-    r"\bsymptoms? (?:indicate|suggest|point to)\b",
+    r"\byou (?:have|likely have|probably have|definitely have)\b",
+    r"\bdiagnos(?:is|ed|e) (?:you|this) with\b",
+    r"\btake\b.*\b(\d+\s*mg|milligram|pill|tablet|capsule|dose)\b",
+    r"\bprescri(?:be|ption|bed) (?:you|this)\b",
+    r"\btest results? (?:show|indicate|suggest|mean)\b",
+    r"\bimaging (?:shows?|reveals?|indicates?)\b",
 ]
+
 
 SAFE_REDIRECT = (
     "I'm only able to help with scheduling and practice information. "
